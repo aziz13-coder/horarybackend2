@@ -398,7 +398,12 @@ class TraditionalHoraryQuestionAnalyzer:
             houses.extend([1, 7])  # L1 = self, L7 = other person/partner
             
         elif question_type == "pregnancy":
-            houses.append(5)  # Pregnancy and children
+            if third_person_analysis and third_person_analysis.get("is_third_person"):
+                subject_house = third_person_analysis["subject_house"]
+                pregnancy_house = self._apply_house_derivation(subject_house, 5)
+                houses.extend([subject_house, pregnancy_house])
+            else:
+                houses.append(5)  # Pregnancy and children
             
         elif question_type == "children":
             houses.append(5)  # Children
@@ -534,13 +539,26 @@ class TraditionalHoraryQuestionAnalyzer:
                 significators = {
                     "querent_house": 1,  # Teacher (querent)
                     "student_house": houses[1] if len(houses) > 1 else 7,  # Student (7th house)
-                    "preparation_house": houses[2] if len(houses) > 2 else 9,  # Student's prep (9th house)  
+                    "preparation_house": houses[2] if len(houses) > 2 else 9,  # Student's prep (9th house)
                     "success_house": houses[3] if len(houses) > 3 else 10,  # Success (10th house)
                     "quesited_house": houses[3] if len(houses) > 3 else 10,  # Primary question = success
                     "moon_role": "translation of light between significators",
                     "special_significators": {},
                     "transaction_type": False,
                     "third_person_education": True
+                }
+            elif third_person_analysis and third_person_analysis.get("is_third_person") and question_type == "pregnancy":
+                subject_house = houses[1] if len(houses) > 1 else third_person_analysis.get("subject_house", 7)
+                pregnancy_house = houses[2] if len(houses) > 2 else self._apply_house_derivation(subject_house, 5)
+                significators = {
+                    "querent_house": 1,
+                    "subject_house": subject_house,
+                    "pregnancy_house": pregnancy_house,
+                    "quesited_house": pregnancy_house,
+                    "moon_role": "co-significator of querent and general flow",
+                    "special_significators": {},
+                    "transaction_type": False,
+                    "third_person_pregnancy": True
                 }
             else:
                 # FIXED: For general questions, use 7th house. For derived house questions, use the actual target.
