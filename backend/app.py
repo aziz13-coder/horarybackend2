@@ -364,7 +364,7 @@ def health_check():
 
     try:
 
-        from _horary_math import calculate_elongation, normalize_longitude
+        from calculator import calculate_elongation, normalize_longitude
 
         test_elongation = calculate_elongation(120.0, 90.0)
 
@@ -456,7 +456,7 @@ def get_timezone():
 
         try:
 
-            from _horary_math import safe_geocode
+            from calculator import safe_geocode
 
             lat, lon, full_location = safe_geocode(location)
 
@@ -586,7 +586,7 @@ def get_current_time():
 
         try:
 
-            from _horary_math import safe_geocode
+            from calculator import safe_geocode
 
             lat, lon, full_location = safe_geocode(location)
 
