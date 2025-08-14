@@ -20,3 +20,10 @@ def test_direct_pronoun_detection(question):
     analyzer = TraditionalHoraryQuestionAnalyzer()
     result = analyzer.analyze_question(question)
     assert result["third_person_analysis"]["is_third_person"] is True
+
+
+def test_pregnancy_house_derivation():
+    analyzer = TraditionalHoraryQuestionAnalyzer()
+    result = analyzer.analyze_question("Is she pregnant?")
+    assert result["relevant_houses"] == [1, 7, 11]
+    assert result["significators"]["quesited_house"] == 11
