@@ -46,7 +46,8 @@ from collections import defaultdict
 
 # UPDATED IMPORT: Use the new enhanced engine
 
-from horary_engine import HoraryEngine, LocationError, serialize_planet_with_solar
+from horary_engine.engine import HoraryEngine, serialize_planet_with_solar
+from horary_engine.services.geolocation import LocationError
 
 
 def safe_log(logger, level, message):
@@ -364,7 +365,7 @@ def health_check():
 
     try:
 
-        from calculator import calculate_elongation, normalize_longitude
+        from horary_engine.calculation.helpers import calculate_elongation, normalize_longitude
 
         test_elongation = calculate_elongation(120.0, 90.0)
 
@@ -456,7 +457,7 @@ def get_timezone():
 
         try:
 
-            from calculator import safe_geocode
+            from horary_engine.services.geolocation import safe_geocode
 
             lat, lon, full_location = safe_geocode(location)
 
@@ -464,7 +465,7 @@ def get_timezone():
 
             # Get timezone using enhanced timezone manager
 
-            from horary_engine import TimezoneManager
+            from horary_engine.services.geolocation import TimezoneManager
 
             timezone_manager = TimezoneManager()
 
@@ -586,7 +587,7 @@ def get_current_time():
 
         try:
 
-            from calculator import safe_geocode
+            from horary_engine.services.geolocation import safe_geocode
 
             lat, lon, full_location = safe_geocode(location)
 
@@ -594,7 +595,7 @@ def get_current_time():
 
             # Get current time using enhanced timezone manager
 
-            from horary_engine import TimezoneManager
+            from horary_engine.services.geolocation import TimezoneManager
 
             timezone_manager = TimezoneManager()
 
