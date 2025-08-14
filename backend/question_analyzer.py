@@ -157,28 +157,35 @@ class TraditionalHoraryQuestionAnalyzer:
     def _detect_third_person_question(self, question: str) -> Dict[str, Any]:
         """Detect if question is about someone else requiring house turning"""
         
+        import re
+
         # Strong 3rd person indicators
         third_person_patterns = [
             # Direct pronouns
-            "will he ", "will she ", "will they ", "did he ", "did she ", "has he ", "has she ",
-            "does he ", "does she ", "can he ", "can she ", "should he ", "should she ",
-            # Possessives  
-            " his ", " her ", " their ",
+            r"\bwill he\b", r"\bwill she\b", r"\bwill they\b",
+            r"\bdid he\b", r"\bdid she\b",
+            r"\bhas he\b", r"\bhas she\b",
+            r"\bdoes he\b", r"\bdoes she\b",
+            r"\bcan he\b", r"\bcan she\b",
+            r"\bshould he\b", r"\bshould she\b",
+            r"\bis he\b", r"\bis she\b", r"\bis they\b",
+            # Possessives
+            r"\bhis\b", r"\bher\b", r"\btheir\b",
             # Specific relationships
-            "the student", "my student", "the teacher", "my friend", "my partner", "my husband", 
-            "my wife", "my child", "my son", "my daughter", "the patient", "my client",
+            r"the student", r"my student", r"the teacher", r"my friend", r"my partner", r"my husband",
+            r"my wife", r"my child", r"my son", r"my daughter", r"the patient", r"my client",
             # Question about someone else
-            "asked by his", "asked by her", "asked by the"
+            r"asked by his", r"asked by her", r"asked by the",
         ]
-        
+
         # Context clues that suggest 3rd person
         for pattern in third_person_patterns:
-            if pattern in question:
+            if re.search(pattern, question):
                 return {
                     "is_third_person": True,
                     "subject_house": 7,  # The other person = 7th house
                     "turn_houses": True,
-                    "pattern_matched": pattern.strip()
+                    "pattern_matched": pattern.strip(),
                 }
         
         # Educational context: teacher asking about student
