@@ -327,48 +327,6 @@ def check_aspect_separation_order(planet_a_lon: float, planet_a_speed: float,
     }
 
 
-class LocationError(Exception):
-    """Custom exception for geocoding failures"""
-    pass
-
-
-def safe_geocode(location_string: str, timeout: int = 10) -> Tuple[float, float, str]:
-    """
-    Geocode location with fail-fast behavior (no silent defaults).
-    
-    Args:
-        location_string: Location to geocode
-        timeout: Timeout in seconds
-    
-    Returns:
-        Tuple of (latitude, longitude, full_address)
-    
-    Raises:
-        LocationError: If geocoding fails
-    
-    Classical source: Traditional requirement for accurate locality in horary
-    """
-    try:
-        from geopy.geocoders import Nominatim
-        from geopy.exc import GeocoderTimedOut, GeocoderUnavailable
-        
-        geolocator = Nominatim(user_agent="horary_astrology_precise")
-        
-        location = geolocator.geocode(location_string, timeout=timeout)
-        
-        if location is None:
-            raise LocationError(f"Location not found: '{location_string}'. Please provide a more specific location.")
-        
-        return (location.latitude, location.longitude, location.address)
-        
-    except (GeocoderTimedOut, GeocoderUnavailable) as e:
-        raise LocationError(f"Geocoding service unavailable: {str(e)}")
-    except ImportError:
-        raise LocationError("Geocoding library not available. Please install geopy.")
-    except Exception as e:
-        raise LocationError(f"Geocoding failed for '{location_string}': {str(e)}")
-
-
 def normalize_longitude(longitude: float) -> float:
     """Normalize longitude to 0-360 degrees"""
     return longitude % 360
