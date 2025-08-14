@@ -10,18 +10,14 @@ Refactored with comprehensive configuration system and enhanced lunar calculatio
 """
 
 import os
-import sys
-import json
-import math
 import datetime
 import logging
-from typing import Dict, List, Tuple, Optional, Any, Union
+from typing import Dict, List, Optional, Any
 
 # Configuration system
 from horary_config import get_config, cfg, HoraryError
 
 # Timezone handling
-import pytz
 import swisseph as swe
 
 # Import our computational helpers
@@ -61,211 +57,18 @@ from models import (
     HoraryChart,
 )
 from question_analyzer import TraditionalHoraryQuestionAnalyzer
-
-
-class TraditionalReceptionCalculator:
-    """Centralized reception calculator - single source of truth for all reception logic"""
-    
-    def __init__(self):
-        # Traditional exaltations
-        self.exaltations = {
-            Planet.SUN: Sign.ARIES,
-            Planet.MOON: Sign.TAURUS,
-            Planet.MERCURY: Sign.VIRGO,
-            Planet.VENUS: Sign.PISCES,
-            Planet.MARS: Sign.CAPRICORN,
-            Planet.JUPITER: Sign.CANCER,
-            Planet.SATURN: Sign.LIBRA
-        }
-        
-        # Traditional triplicity rulers (day/night)
-        self.triplicity_rulers = {
-            # Fire signs (Aries, Leo, Sagittarius) 
-            Sign.ARIES: {"day": Planet.SUN, "night": Planet.JUPITER},
-            Sign.LEO: {"day": Planet.SUN, "night": Planet.JUPITER},
-            Sign.SAGITTARIUS: {"day": Planet.SUN, "night": Planet.JUPITER},
-            
-            # Earth signs (Taurus, Virgo, Capricorn)
-            Sign.TAURUS: {"day": Planet.VENUS, "night": Planet.MOON},
-            Sign.VIRGO: {"day": Planet.VENUS, "night": Planet.MOON},
-            Sign.CAPRICORN: {"day": Planet.VENUS, "night": Planet.MOON},
-            
-            # Air signs (Gemini, Libra, Aquarius)
-            Sign.GEMINI: {"day": Planet.SATURN, "night": Planet.MERCURY},
-            Sign.LIBRA: {"day": Planet.SATURN, "night": Planet.MERCURY},
-            Sign.AQUARIUS: {"day": Planet.SATURN, "night": Planet.MERCURY},
-            
-            # Water signs (Cancer, Scorpio, Pisces)
-            Sign.CANCER: {"day": Planet.MARS, "night": Planet.VENUS},
-            Sign.SCORPIO: {"day": Planet.MARS, "night": Planet.VENUS},
-            Sign.PISCES: {"day": Planet.MARS, "night": Planet.VENUS}
-        }
-    
-    def calculate_comprehensive_reception(self, chart: HoraryChart, planet1: Planet, planet2: Planet) -> Dict[str, Any]:
-        """
-        SINGLE SOURCE OF TRUTH for all reception calculations
-        Returns comprehensive reception data used by both reasoning and structured output
-        """
-        
-        # Get planet positions
-        pos1 = chart.planets[planet1]
-        pos2 = chart.planets[planet2]
-        
-        # Determine day/night for triplicity calculations
-        sun_pos = chart.planets[Planet.SUN]
-        sun_house = self._calculate_house_position(sun_pos.longitude, chart.houses)
-        is_day = sun_house in [7, 8, 9, 10, 11, 12]  # Sun below horizon = day chart
-        
-        # Check all dignity types for both directions
-        reception_1_to_2 = self._check_all_dignities(planet1, pos2, is_day)
-        reception_2_to_1 = self._check_all_dignities(planet2, pos1, is_day)
-        
-        # Determine overall reception type
-        reception_type, reception_details = self._classify_reception(
-            planet1, planet2, reception_1_to_2, reception_2_to_1
-        )
-        
-        return {
-            "type": reception_type,  # none, mutual_rulership, mutual_exaltation, mixed_reception, unilateral
-            "details": reception_details,
-            "planet1_receives_planet2": reception_1_to_2,
-            "planet2_receives_planet1": reception_2_to_1,
-            "day_chart": is_day,
-            "display_text": self._format_reception_display(reception_type, planet1, planet2, reception_details),
-            "traditional_strength": self._calculate_reception_strength(reception_type, reception_details)
-        }
-    
-    def _check_all_dignities(self, receiving_planet: Planet, received_position, is_day: bool) -> List[str]:
-        """Check all traditional dignity types for reception"""
-        dignities = []
-        
-        # 1. Domicile/Rulership (strongest)
-        if received_position.sign.ruler == receiving_planet:
-            dignities.append("domicile")
-        
-        # 2. Exaltation (second strongest)
-        if receiving_planet in self.exaltations and self.exaltations[receiving_planet] == received_position.sign:
-            dignities.append("exaltation")
-        
-        # 3. Triplicity (third strongest)
-        if self._has_triplicity_dignity(receiving_planet, received_position.sign, is_day):
-            dignities.append("triplicity")
-        
-        # TODO: Could add terms and faces for complete traditional reception
-        # 4. Terms (Egyptian terms)
-        # 5. Faces/Decans
-        
-        return dignities
-    
-    def _has_triplicity_dignity(self, planet: Planet, sign: Sign, is_day: bool) -> bool:
-        """Check if planet has triplicity dignity in sign"""
-        if sign not in self.triplicity_rulers:
-            return False
-            
-        sect = "day" if is_day else "night"
-        return self.triplicity_rulers[sign][sect] == planet
-    
-    def _classify_reception(self, planet1: Planet, planet2: Planet, 
-                           reception_1_to_2: List[str], reception_2_to_1: List[str]) -> Tuple[str, Dict]:
-        """Classify the overall reception type"""
-        
-        # No reception
-        if not reception_1_to_2 and not reception_2_to_1:
-            return "none", {}
-        
-        # Mutual reception - same dignity type both ways
-        if "domicile" in reception_1_to_2 and "domicile" in reception_2_to_1:
-            return "mutual_rulership", {
-                "planet1_dignities": reception_1_to_2,
-                "planet2_dignities": reception_2_to_1
-            }
-        
-        if "exaltation" in reception_1_to_2 and "exaltation" in reception_2_to_1:
-            return "mutual_exaltation", {
-                "planet1_dignities": reception_1_to_2,
-                "planet2_dignities": reception_2_to_1
-            }
-        
-        # Mixed mutual reception - different dignity types
-        if reception_1_to_2 and reception_2_to_1:
-            return "mixed_reception", {
-                "planet1_dignities": reception_1_to_2,
-                "planet2_dignities": reception_2_to_1
-            }
-        
-        # Unilateral reception - one way only
-        if reception_1_to_2:
-            return "unilateral", {
-                "receiving_planet": planet1,
-                "received_planet": planet2,
-                "dignities": reception_1_to_2
-            }
-        else:
-            return "unilateral", {
-                "receiving_planet": planet2,
-                "received_planet": planet1,
-                "dignities": reception_2_to_1
-            }
-    
-    def _format_reception_display(self, reception_type: str, planet1: Planet, planet2: Planet, details: Dict) -> str:
-        """Format reception for display in reasoning"""
-        if reception_type == "none":
-            return "no reception"
-        elif reception_type == "mutual_rulership":
-            return f"{planet1.value}↔{planet2.value} mutual domicile reception"
-        elif reception_type == "mutual_exaltation":
-            return f"{planet1.value}↔{planet2.value} mutual exaltation reception"
-        elif reception_type == "mixed_reception":
-            p1_dignities = ", ".join(details.get("planet1_dignities", []))
-            p2_dignities = ", ".join(details.get("planet2_dignities", []))
-            return f"{planet1.value}↔{planet2.value} mixed reception ({p1_dignities} / {p2_dignities})"
-        elif reception_type == "unilateral":
-            receiving = details.get("receiving_planet")
-            received = details.get("received_planet")
-            dignities = ", ".join(details.get("dignities", []))
-            return f"{receiving.value} receives {received.value} by {dignities}"
-        else:
-            return f"{reception_type} reception"
-    
-    def _calculate_reception_strength(self, reception_type: str, details: Dict) -> int:
-        """Calculate numerical strength of reception for confidence calculations"""
-        if reception_type == "none":
-            return 0
-        elif reception_type == "mutual_rulership":
-            return 10  # Strongest
-        elif reception_type == "mutual_exaltation":
-            return 8
-        elif reception_type == "mixed_reception":
-            return 6
-        elif reception_type == "unilateral":
-            dignities = details.get("dignities", [])
-            if "domicile" in dignities:
-                return 5
-            elif "exaltation" in dignities:
-                return 4
-            elif "triplicity" in dignities:
-                return 3
-            else:
-                return 2
-        else:
-            return 1
-    
-    def _calculate_house_position(self, longitude: float, houses: List[float]) -> int:
-        """Helper method for house calculation"""
-        longitude = longitude % 360
-        
-        for i in range(12):
-            current_cusp = houses[i] % 360
-            next_cusp = houses[(i + 1) % 12] % 360
-            
-            if current_cusp > next_cusp:  # Crosses 0°
-                if longitude >= current_cusp or longitude < next_cusp:
-                    return i + 1
-            else:
-                if current_cusp <= longitude < next_cusp:
-                    return i + 1
-        
-        return 1
+from .reception import TraditionalReceptionCalculator
+from .aspects import (
+    calculate_enhanced_aspects,
+    calculate_moon_last_aspect,
+    calculate_moon_next_aspect,
+)
+from .radicality import check_enhanced_radicality
+from .serialization import (
+    serialize_chart_for_frontend,
+    serialize_lunar_aspect,
+    serialize_planet_with_solar,
+)
 
 
 class EnhancedTraditionalAstrologicalCalculator:
@@ -420,11 +223,15 @@ class EnhancedTraditionalAstrologicalCalculator:
                 planet_pos.planet, planet_pos, houses, planets[Planet.SUN], solar_analysis)
         
         # Calculate enhanced traditional aspects
-        aspects = self._calculate_enhanced_aspects(planets, jd_ut)
-        
+        aspects = calculate_enhanced_aspects(planets, jd_ut)
+
         # NEW: Calculate last and next lunar aspects
-        moon_last_aspect = self._calculate_moon_last_aspect(planets, jd_ut)
-        moon_next_aspect = self._calculate_moon_next_aspect(planets, jd_ut)
+        moon_last_aspect = calculate_moon_last_aspect(
+            planets, jd_ut, self.get_real_moon_speed
+        )
+        moon_next_aspect = calculate_moon_next_aspect(
+            planets, jd_ut, self.get_real_moon_speed
+        )
         
         chart = HoraryChart(
             date_time=dt_local,
@@ -446,160 +253,6 @@ class EnhancedTraditionalAstrologicalCalculator:
         
         return chart
     
-    def _calculate_moon_last_aspect(self, planets: Dict[Planet, PlanetPosition], 
-                                   jd_ut: float) -> Optional[LunarAspect]:
-        """Calculate Moon's last separating aspect"""
-        
-        moon_pos = planets[Planet.MOON]
-        moon_speed = self.get_real_moon_speed(jd_ut)
-        
-        # Look back to find most recent separating aspect
-        separating_aspects = []
-        
-        for planet, planet_pos in planets.items():
-            if planet == Planet.MOON:
-                continue
-            
-            # Calculate current separation
-            separation = abs(moon_pos.longitude - planet_pos.longitude)
-            if separation > 180:
-                separation = 360 - separation
-            
-            # Check each aspect type
-            for aspect_type in Aspect:
-                orb_diff = abs(separation - aspect_type.degrees)
-                max_orb = aspect_type.orb
-                
-                # Wider orb for recently separating
-                if orb_diff <= max_orb * 1.5:
-                    # Check if separating (Moon was closer recently)
-                    if self._is_moon_separating_from_aspect(moon_pos, planet_pos, aspect_type, moon_speed):
-                        degrees_since_exact = orb_diff
-                        time_since_exact = degrees_since_exact / moon_speed
-                        
-                        separating_aspects.append(LunarAspect(
-                            planet=planet,
-                            aspect=aspect_type,
-                            orb=orb_diff,
-                            degrees_difference=degrees_since_exact,
-                            perfection_eta_days=time_since_exact,
-                            perfection_eta_description=f"{time_since_exact:.1f} days ago",
-                            applying=False
-                        ))
-        
-        # Return most recent (smallest time_since_exact)
-        if separating_aspects:
-            return min(separating_aspects, key=lambda x: x.perfection_eta_days)
-        
-        return None
-    
-    def _calculate_moon_next_aspect(self, planets: Dict[Planet, PlanetPosition], 
-                                   jd_ut: float) -> Optional[LunarAspect]:
-        """Calculate Moon's next applying aspect"""
-        
-        moon_pos = planets[Planet.MOON]
-        moon_speed = self.get_real_moon_speed(jd_ut)
-        
-        # Find closest applying aspect
-        applying_aspects = []
-        
-        for planet, planet_pos in planets.items():
-            if planet == Planet.MOON:
-                continue
-            
-            # Calculate current separation
-            separation = abs(moon_pos.longitude - planet_pos.longitude)
-            if separation > 180:
-                separation = 360 - separation
-            
-            # Check each aspect type
-            for aspect_type in Aspect:
-                orb_diff = abs(separation - aspect_type.degrees)
-                max_orb = aspect_type.orb
-                
-                if orb_diff <= max_orb:
-                    # Check if applying
-                    if self._is_moon_applying_to_aspect(moon_pos, planet_pos, aspect_type, moon_speed):
-                        degrees_to_exact = orb_diff
-                        relative_speed = abs(moon_speed - abs(planet_pos.speed))
-                        time_to_exact = degrees_to_exact / relative_speed if relative_speed > 0 else float('inf')
-                        
-                        applying_aspects.append(LunarAspect(
-                            planet=planet,
-                            aspect=aspect_type,
-                            orb=orb_diff,
-                            degrees_difference=degrees_to_exact,
-                            perfection_eta_days=time_to_exact,
-                            perfection_eta_description=self._format_timing_description(time_to_exact),
-                            applying=True
-                        ))
-        
-        # Return soonest (smallest time_to_exact)
-        if applying_aspects:
-            return min(applying_aspects, key=lambda x: x.perfection_eta_days)
-        
-        return None
-    
-    def _is_moon_separating_from_aspect(self, moon_pos: PlanetPosition, 
-                                       planet_pos: PlanetPosition, aspect: Aspect, 
-                                       moon_speed: float) -> bool:
-        """Check if Moon is separating from an aspect"""
-        
-        # Calculate separation change over time
-        time_increment = 0.1  # days
-        current_separation = abs(moon_pos.longitude - planet_pos.longitude)
-        if current_separation > 180:
-            current_separation = 360 - current_separation
-        
-        # Future Moon position
-        future_moon_lon = (moon_pos.longitude + moon_speed * time_increment) % 360
-        future_separation = abs(future_moon_lon - planet_pos.longitude)
-        if future_separation > 180:
-            future_separation = 360 - future_separation
-        
-        # Separating if orb from aspect degree is increasing
-        current_orb = abs(current_separation - aspect.degrees)
-        future_orb = abs(future_separation - aspect.degrees)
-        
-        return future_orb > current_orb
-    
-    def _is_moon_applying_to_aspect(self, moon_pos: PlanetPosition, 
-                                   planet_pos: PlanetPosition, aspect: Aspect, 
-                                   moon_speed: float) -> bool:
-        """Check if Moon is applying to an aspect"""
-        
-        # Calculate separation change over time
-        time_increment = 0.1  # days
-        current_separation = abs(moon_pos.longitude - planet_pos.longitude)
-        if current_separation > 180:
-            current_separation = 360 - current_separation
-        
-        # Future Moon position
-        future_moon_lon = (moon_pos.longitude + moon_speed * time_increment) % 360
-        future_separation = abs(future_moon_lon - planet_pos.longitude)
-        if future_separation > 180:
-            future_separation = 360 - future_separation
-        
-        # Applying if orb from aspect degree is decreasing
-        current_orb = abs(current_separation - aspect.degrees)
-        future_orb = abs(future_separation - aspect.degrees)
-        
-        return future_orb < current_orb
-    
-    def _format_timing_description(self, days: float) -> str:
-        """Format timing description for aspect perfection"""
-        if days < 0.5:
-            return "Within hours"
-        elif days < 1:
-            return "Within a day"
-        elif days < 7:
-            return f"Within {int(days)} days"
-        elif days < 30:
-            return f"Within {int(days/7)} weeks"
-        elif days < 365:
-            return f"Within {int(days/30)} months"
-        else:
-            return "More than a year"
     
     # [Continue with the rest of the methods...]
     # Due to space constraints, I'll continue with key methods
@@ -1050,177 +703,6 @@ class EnhancedTraditionalAstrologicalCalculator:
         
         return score
     
-    def _calculate_enhanced_aspects(self, planets: Dict[Planet, PlanetPosition], 
-                                  jd_ut: float) -> List[AspectInfo]:
-        """Enhanced aspect calculation with configuration"""
-        aspects = []
-        planet_list = list(planets.keys())
-        config = cfg()
-        
-        for i, planet1 in enumerate(planet_list):
-            for planet2 in planet_list[i+1:]:
-                pos1 = planets[planet1]
-                pos2 = planets[planet2]
-                
-                # Calculate angular separation
-                angle_diff = abs(pos1.longitude - pos2.longitude)
-                if angle_diff > 180:
-                    angle_diff = 360 - angle_diff
-                
-                # Check each traditional aspect
-                for aspect_type in Aspect:
-                    orb_diff = abs(angle_diff - aspect_type.degrees)
-                    
-                    # ENHANCED: Traditional moiety-based orb calculation
-                    max_orb = self._calculate_moiety_based_orb(planet1, planet2, aspect_type, config)
-                    
-                    # Fallback to configured orbs if moiety system disabled
-                    if max_orb == 0:
-                        max_orb = aspect_type.orb
-                        # Luminary bonuses (legacy)
-                        if Planet.SUN in [planet1, planet2]:
-                            max_orb += config.orbs.sun_orb_bonus
-                        if Planet.MOON in [planet1, planet2]:
-                            max_orb += config.orbs.moon_orb_bonus
-                    
-                    if orb_diff <= max_orb:
-                        # Determine if applying
-                        applying = self._is_applying_enhanced(pos1, pos2, aspect_type, jd_ut)
-                        
-                        # Calculate degrees to exact and timing
-                        degrees_to_exact, exact_time = self._calculate_enhanced_degrees_to_exact(
-                            pos1, pos2, aspect_type, jd_ut)
-                        
-                        aspects.append(AspectInfo(
-                            planet1=planet1,
-                            planet2=planet2,
-                            aspect=aspect_type,
-                            orb=orb_diff,
-                            applying=applying,
-                            exact_time=exact_time,
-                            degrees_to_exact=degrees_to_exact
-                        ))
-                        break
-        
-        return aspects
-    
-    def _calculate_moiety_based_orb(self, planet1: Planet, planet2: Planet, aspect_type: Aspect, config) -> float:
-        """Calculate traditional moiety-based orb for two planets (ENHANCED)"""
-        
-        if not hasattr(config.orbs, 'moieties'):
-            return 0  # Fallback to legacy system
-        
-        # Get planetary moieties
-        moiety1 = getattr(config.orbs.moieties, planet1.value, 8.0)  # Default 8.0 if not found
-        moiety2 = getattr(config.orbs.moieties, planet2.value, 8.0)
-        
-        # Combined moiety orb
-        combined_moiety = moiety1 + moiety2
-        
-        # Traditional aspect-specific adjustments
-        if aspect_type in [Aspect.CONJUNCTION, Aspect.OPPOSITION]:
-            # Conjunction and opposition get full combined moieties
-            return combined_moiety
-        elif aspect_type in [Aspect.TRINE, Aspect.SQUARE]:
-            # Squares and trines get slightly reduced orbs
-            return combined_moiety * 0.85
-        elif aspect_type == Aspect.SEXTILE:
-            # Sextiles get more restrictive orbs
-            return combined_moiety * 0.7
-        else:
-            return combined_moiety * 0.8  # Other aspects
-    
-    def _is_applying_enhanced(self, pos1: PlanetPosition, pos2: PlanetPosition, 
-                            aspect: Aspect, jd_ut: float) -> bool:
-        """Enhanced applying check with directional sign-exit check"""
-        
-        # Faster planet applies to slower planet
-        if abs(pos1.speed) > abs(pos2.speed):
-            faster, slower = pos1, pos2
-        else:
-            faster, slower = pos2, pos1
-        
-        # Calculate current separation
-        separation = faster.longitude - slower.longitude
-        
-        # Normalize to -180 to +180
-        while separation > 180:
-            separation -= 360
-        while separation < -180:
-            separation += 360
-        
-        # Calculate target separation for this aspect
-        target = aspect.degrees
-        
-        # Check both directions
-        targets = [target, -target]
-        if target != 0 and target != 180:
-            targets.extend([target - 360, -target + 360])
-        
-        # Find closest target
-        closest_target = min(targets, key=lambda t: abs(separation - t))
-        current_orb = abs(separation - closest_target)
-        
-        # Check if aspect will perfect before either planet exits sign
-        days_to_perfect = current_orb / abs(faster.speed - slower.speed) if abs(faster.speed - slower.speed) > 0 else float('inf')
-        
-        # Check days until each planet exits its current sign (directional)
-        faster_days_to_exit = days_to_sign_exit(faster.longitude, faster.speed)
-        slower_days_to_exit = days_to_sign_exit(slower.longitude, slower.speed)
-        
-        # If either planet exits sign before perfection, aspect does not apply
-        if faster_days_to_exit and days_to_perfect > faster_days_to_exit:
-            return False
-        if slower_days_to_exit and days_to_perfect > slower_days_to_exit:
-            return False
-        
-        # Calculate future position to confirm applying
-        time_increment = cfg().timing.timing_precision_days
-        future_separation = separation + (faster.speed - slower.speed) * time_increment
-        
-        # Normalize future separation
-        while future_separation > 180:
-            future_separation -= 360
-        while future_separation < -180:
-            future_separation += 360
-        
-        future_orb = abs(future_separation - closest_target)
-        
-        return future_orb < current_orb
-    
-    def _calculate_enhanced_degrees_to_exact(self, pos1: PlanetPosition, pos2: PlanetPosition, 
-                                           aspect: Aspect, jd_ut: float) -> Tuple[float, Optional[datetime.datetime]]:
-        """Enhanced degrees and time calculation"""
-        
-        # Current separation
-        separation = abs(pos1.longitude - pos2.longitude)
-        if separation > 180:
-            separation = 360 - separation
-        
-        # Orb from exact
-        orb_from_exact = abs(separation - aspect.degrees)
-        
-        # Calculate exact time if planets are applying
-        exact_time = None
-        if abs(pos1.speed - pos2.speed) > 0:
-            days_to_exact = orb_from_exact / abs(pos1.speed - pos2.speed)
-            
-            max_future_days = cfg().timing.max_future_days
-            if days_to_exact < max_future_days:
-                try:
-                    exact_jd = jd_ut + days_to_exact
-                    # Convert back to datetime
-                    year, month, day, hour = swe.jdut1_to_utc(exact_jd, 1)  # Flag 1 for Gregorian
-                    exact_time = datetime.datetime(int(year), int(month), int(day), 
-                                                 int(hour), int((hour % 1) * 60))
-                except:
-                    exact_time = None
-        
-        # If already very close, return small value
-        if orb_from_exact < 0.1:
-            return 0.1, exact_time
-        
-        return orb_from_exact, exact_time
     
     def _get_sign(self, longitude: float) -> Sign:
         """Get zodiac sign from longitude"""
@@ -1358,8 +840,8 @@ class EnhancedTraditionalHoraryJudgmentEngine:
                 "considerations": considerations,
                 
                 # NEW: Enhanced lunar aspects
-                "moon_last_aspect": self._serialize_lunar_aspect(chart.moon_last_aspect),
-                "moon_next_aspect": self._serialize_lunar_aspect(chart.moon_next_aspect),
+                "moon_last_aspect": serialize_lunar_aspect(chart.moon_last_aspect),
+                "moon_next_aspect": serialize_lunar_aspect(chart.moon_next_aspect),
                 
                 "timezone_info": {
                     "local_time": dt_local.isoformat(),
@@ -1404,20 +886,6 @@ class EnhancedTraditionalHoraryJudgmentEngine:
             return target_planet in [querent, quesited]
         return False
     
-    def _serialize_lunar_aspect(self, lunar_aspect: Optional[LunarAspect]) -> Optional[Dict]:
-        """Serialize LunarAspect for JSON output"""
-        if not lunar_aspect:
-            return None
-        
-        return {
-            "planet": lunar_aspect.planet.value,
-            "aspect": lunar_aspect.aspect.display_name,
-            "orb": round(lunar_aspect.orb, 2),
-            "degrees_difference": round(lunar_aspect.degrees_difference, 2),
-            "perfection_eta_days": round(lunar_aspect.perfection_eta_days, 2),
-            "perfection_eta_description": lunar_aspect.perfection_eta_description,
-            "applying": lunar_aspect.applying
-        }
     
     # NEW: Enhanced Moon accidental dignity helpers
     def _moon_phase_bonus(self, chart: HoraryChart) -> int:
@@ -1590,7 +1058,7 @@ class EnhancedTraditionalHoraryJudgmentEngine:
 
     def _calculate_considerations(self, chart: HoraryChart, question_analysis: Dict) -> Dict[str, Any]:
         """Return standard horary considerations"""
-        radicality = self._check_enhanced_radicality(chart)
+        radicality = check_enhanced_radicality(chart)
         moon_void = self._is_moon_void_of_course_enhanced(chart)
 
         return {
@@ -1615,7 +1083,7 @@ class EnhancedTraditionalHoraryJudgmentEngine:
         
         # 1. Enhanced radicality with configuration
         if not ignore_radicality:
-            radicality = self._check_enhanced_radicality(chart, ignore_saturn_7th)
+            radicality = check_enhanced_radicality(chart, ignore_saturn_7th)
             if not radicality["valid"]:
                 return {
                     "result": "NOT RADICAL",
@@ -2193,53 +1661,6 @@ class EnhancedTraditionalHoraryJudgmentEngine:
             "solar_factors": solar_factors
         }
     
-    def _check_enhanced_radicality(self, chart: HoraryChart, ignore_saturn_7th: bool = False) -> Dict[str, Any]:
-        """Enhanced radicality checks with configuration"""
-        
-        config = cfg()
-        asc_degree = chart.ascendant % 30
-        
-        # Too early
-        if asc_degree < config.radicality.asc_too_early:
-            return {
-                "valid": False,
-                "reason": f"Ascendant too early at {asc_degree:.1f}° - question premature or not mature"
-            }
-        
-        # Too late
-        if asc_degree > config.radicality.asc_too_late:
-            return {
-                "valid": False,
-                "reason": f"Ascendant too late at {asc_degree:.1f}° - question too late or already decided"
-            }
-        
-        # Saturn in 7th house (configurable)
-        if config.radicality.saturn_7th_enabled and not ignore_saturn_7th:
-            saturn_pos = chart.planets[Planet.SATURN]
-            if saturn_pos.house == 7:
-                return {
-                    "valid": False,
-                    "reason": "Saturn in 7th house - astrologer may err in judgment (Bonatti)"
-                }
-        
-        # Via Combusta (configurable)
-        if config.radicality.via_combusta_enabled:
-            moon_pos = chart.planets[Planet.MOON]
-            moon_degree_in_sign = moon_pos.longitude % 30
-            
-            via_combusta = config.radicality.via_combusta
-            
-            if ((moon_pos.sign == Sign.LIBRA and moon_degree_in_sign > via_combusta.libra_start) or
-                (moon_pos.sign == Sign.SCORPIO and moon_degree_in_sign <= via_combusta.scorpio_end)):
-                return {
-                    "valid": False,
-                    "reason": f"Moon in Via Combusta ({moon_pos.sign.sign_name} {moon_degree_in_sign:.1f}°) - volatile or corrupted matter"
-                }
-        
-        return {
-            "valid": True,
-            "reason": f"Chart is radical - Ascendant at {asc_degree:.1f}°"
-        }
     
     def _check_enhanced_denial_conditions(self, chart: HoraryChart, querent: Planet, quesited: Planet) -> Dict[str, Any]:
         """Enhanced denial conditions with configurable retrograde handling"""
@@ -2305,53 +1726,6 @@ class EnhancedTraditionalHoraryJudgmentEngine:
             "solar_factors": solar_factors
         }
     
-    def _check_enhanced_radicality(self, chart: HoraryChart, ignore_saturn_7th: bool = False) -> Dict[str, Any]:
-        """Enhanced radicality checks with configuration"""
-        
-        config = cfg()
-        asc_degree = chart.ascendant % 30
-        
-        # Too early
-        if asc_degree < config.radicality.asc_too_early:
-            return {
-                "valid": False,
-                "reason": f"Ascendant too early at {asc_degree:.1f}° - question premature or not mature"
-            }
-        
-        # Too late
-        if asc_degree > config.radicality.asc_too_late:
-            return {
-                "valid": False,
-                "reason": f"Ascendant too late at {asc_degree:.1f}° - question too late or already decided"
-            }
-        
-        # Saturn in 7th house (configurable)
-        if config.radicality.saturn_7th_enabled and not ignore_saturn_7th:
-            saturn_pos = chart.planets[Planet.SATURN]
-            if saturn_pos.house == 7:
-                return {
-                    "valid": False,
-                    "reason": "Saturn in 7th house - astrologer may err in judgment (Bonatti)"
-                }
-        
-        # Via Combusta (configurable)
-        if config.radicality.via_combusta_enabled:
-            moon_pos = chart.planets[Planet.MOON]
-            moon_degree_in_sign = moon_pos.longitude % 30
-            
-            via_combusta = config.radicality.via_combusta
-            
-            if ((moon_pos.sign == Sign.LIBRA and moon_degree_in_sign > via_combusta.libra_start) or
-                (moon_pos.sign == Sign.SCORPIO and moon_degree_in_sign <= via_combusta.scorpio_end)):
-                return {
-                    "valid": False,
-                    "reason": f"Moon in Via Combusta ({moon_pos.sign.sign_name} {moon_degree_in_sign:.1f}°) - volatile or corrupted matter"
-                }
-        
-        return {
-            "valid": True,
-            "reason": f"Chart is radical - Ascendant at {asc_degree:.1f}°"
-        }
     
     def _check_enhanced_denial_conditions(self, chart: HoraryChart, querent: Planet, quesited: Planet) -> Dict[str, Any]:
         """Enhanced denial conditions with configurable retrograde handling"""
@@ -4363,134 +3737,6 @@ TraditionalHoraryJudgmentEngine = EnhancedTraditionalHoraryJudgmentEngine
 
 
 # Preserve existing serialization functions with enhancements
-def serialize_planet_with_solar(planet_pos: PlanetPosition, solar_analysis: Optional[SolarAnalysis] = None) -> Dict:
-    """Enhanced helper function to serialize planet data including solar conditions"""
-    data = {
-        'longitude': float(planet_pos.longitude),
-        'latitude': float(planet_pos.latitude),
-        'house': int(planet_pos.house),
-        'sign': planet_pos.sign.sign_name,
-        'dignity_score': int(planet_pos.dignity_score),
-        'retrograde': bool(planet_pos.retrograde),
-        'speed': float(planet_pos.speed),
-        'degree_in_sign': float(planet_pos.longitude % 30)
-    }
-    
-    if solar_analysis:
-        data['solar_condition'] = {
-            'condition': solar_analysis.condition.condition_name,
-            'distance_from_sun': round(solar_analysis.distance_from_sun, 4),
-            'dignity_effect': solar_analysis.condition.dignity_modifier,
-            'description': solar_analysis.condition.description,
-            'exact_cazimi': solar_analysis.exact_cazimi,
-            'traditional_exception': solar_analysis.traditional_exception
-        }
-    
-    return data
-
-
-def serialize_chart_for_frontend(chart: HoraryChart, solar_analyses: Dict[Planet, SolarAnalysis] = None) -> Dict[str, Any]:
-    """Enhanced serialize HoraryChart object for frontend consumption"""
-    
-    planets_data = {}
-    for planet, planet_pos in chart.planets.items():
-        solar_analysis = solar_analyses.get(planet) if solar_analyses else None
-        planets_data[planet.value] = serialize_planet_with_solar(planet_pos, solar_analysis)
-    
-    aspects_data = []
-    for aspect in chart.aspects:
-        aspects_data.append({
-            'planet1': aspect.planet1.value,
-            'planet2': aspect.planet2.value,
-            'aspect': aspect.aspect.display_name,
-            'orb': round(aspect.orb, 2),
-            'applying': aspect.applying,
-            'degrees_to_exact': round(aspect.degrees_to_exact, 2),
-            'exact_time': aspect.exact_time.isoformat() if aspect.exact_time else None
-        })
-    
-    # Enhanced solar conditions summary with proper enum handling
-    solar_conditions_summary = None
-    if solar_analyses:
-        cazimi_planets = []
-        combusted_planets = []
-        under_beams_planets = []
-        free_planets = []
-        
-        for planet, analysis in solar_analyses.items():
-            planet_info = {
-                'planet': planet.value,
-                'distance_from_sun': round(analysis.distance_from_sun, 4)
-            }
-            
-            if analysis.condition == SolarCondition.CAZIMI:
-                planet_info['exact_cazimi'] = analysis.exact_cazimi
-                planet_info['dignity_effect'] = analysis.condition.dignity_modifier
-                cazimi_planets.append(planet_info)
-            elif analysis.condition == SolarCondition.COMBUSTION:
-                planet_info['traditional_exception'] = analysis.traditional_exception
-                planet_info['dignity_effect'] = analysis.condition.dignity_modifier
-                combusted_planets.append(planet_info)
-            elif analysis.condition == SolarCondition.UNDER_BEAMS:
-                planet_info['dignity_effect'] = analysis.condition.dignity_modifier
-                under_beams_planets.append(planet_info)
-            else:  # FREE
-                free_planets.append(planet_info)
-        
-        solar_conditions_summary = {
-            'cazimi_planets': cazimi_planets,
-            'combusted_planets': combusted_planets,
-            'under_beams_planets': under_beams_planets,
-            'free_planets': free_planets,
-            'significant_conditions': len(cazimi_planets) + len(combusted_planets) + len(under_beams_planets)
-        }
-    
-    # Enhanced serialization with new lunar aspects
-    result = {
-        'planets': planets_data,
-        'aspects': aspects_data,
-        'houses': [round(cusp, 2) for cusp in chart.houses],
-        'house_rulers': {str(house): ruler.value for house, ruler in chart.house_rulers.items()},
-        'ascendant': round(chart.ascendant, 4),
-        'midheaven': round(chart.midheaven, 4),
-        'solar_conditions_summary': solar_conditions_summary,
-        
-        'timezone_info': {
-            'local_time': chart.date_time.isoformat(),
-            'utc_time': chart.date_time_utc.isoformat(),
-            'timezone': chart.timezone_info,
-            'location_name': chart.location_name,
-            'coordinates': {
-                'latitude': chart.location[0],
-                'longitude': chart.location[1]
-            }
-        }
-    }
-    
-    # Add enhanced lunar aspects if available
-    if hasattr(chart, 'moon_last_aspect') and chart.moon_last_aspect:
-        result['moon_last_aspect'] = {
-            'planet': chart.moon_last_aspect.planet.value,
-            'aspect': chart.moon_last_aspect.aspect.display_name,
-            'orb': round(chart.moon_last_aspect.orb, 2),
-            'degrees_difference': round(chart.moon_last_aspect.degrees_difference, 2),
-            'perfection_eta_days': round(chart.moon_last_aspect.perfection_eta_days, 2),
-            'perfection_eta_description': chart.moon_last_aspect.perfection_eta_description,
-            'applying': chart.moon_last_aspect.applying
-        }
-    
-    if hasattr(chart, 'moon_next_aspect') and chart.moon_next_aspect:
-        result['moon_next_aspect'] = {
-            'planet': chart.moon_next_aspect.planet.value,
-            'aspect': chart.moon_next_aspect.aspect.display_name,
-            'orb': round(chart.moon_next_aspect.orb, 2),
-            'degrees_difference': round(chart.moon_next_aspect.degrees_difference, 2),
-            'perfection_eta_days': round(chart.moon_next_aspect.perfection_eta_days, 2),
-            'perfection_eta_description': chart.moon_next_aspect.perfection_eta_description,
-            'applying': chart.moon_next_aspect.applying
-        }
-    
-    return result
 
 
 # Helper functions for testing and development
