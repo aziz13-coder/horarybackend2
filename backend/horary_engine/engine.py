@@ -1274,9 +1274,42 @@ class EnhancedTraditionalHoraryJudgmentEngine:
             secondary_significator = significators["quesited"]  # Success
             reasoning.append(f"3rd person analysis: Student ({primary_significator.value}) seeking Success ({secondary_significator.value})")
         
-        perfection = self._check_enhanced_perfection(chart, primary_significator, secondary_significator, 
+        perfection = self._check_enhanced_perfection(chart, primary_significator, secondary_significator,
                                                    exaltation_confidence_boost)
-        
+        # If a direct aspect exists, handle prohibition or immediate denial before considering Moon aspects
+        if "aspect" in perfection:
+            prohibition_result = self._check_traditional_prohibition(chart, primary_significator, secondary_significator)
+            if prohibition_result.get("found"):
+                return {
+                    "result": "NO",
+                    "confidence": min(confidence, prohibition_result["confidence"]),
+                    "reasoning": reasoning + [f"🔴 Prohibition: {prohibition_result['reason']}",],
+                    "timing": None,
+                    "traditional_factors": {
+                        "perfection_type": "prohibition",
+                        "prohibiting_planet": prohibition_result["prohibiting_planet"].value,
+                        "reception": prohibition_result.get("reception", "none"),
+                        "querent_strength": chart.planets[querent_planet].dignity_score,
+                        "quesited_strength": chart.planets[quesited_planet].dignity_score,
+                    },
+                    "solar_factors": solar_factors,
+                }
+
+            if not perfection["perfects"]:
+                return {
+                    "result": "NO",
+                    "confidence": min(confidence, perfection.get("confidence", 75)),
+                    "reasoning": reasoning + [f"❌ Direct aspect denied: {perfection['reason']}",],
+                    "timing": None,
+                    "traditional_factors": {
+                        "perfection_type": perfection.get("type", "direct_denied"),
+                        "reception": perfection.get("reception", "none"),
+                        "querent_strength": chart.planets[querent_planet].dignity_score,
+                        "quesited_strength": chart.planets[quesited_planet].dignity_score,
+                    },
+                    "solar_factors": solar_factors,
+                }
+
         # GENERAL ENHANCEMENT: Check Moon-Sun aspects in education questions (traditional co-significator analysis)
         if not perfection["perfects"] and question_analysis.get("question_type") == "education":
             moon_sun_perfection = self._check_moon_sun_education_perfection(chart, question_analysis)
@@ -1472,20 +1505,25 @@ class EnhancedTraditionalHoraryJudgmentEngine:
         # 3.6. PRIORITY: Check Moon's next applying aspect to significators (traditional key indicator)
         moon_next_aspect_result = self._check_moon_next_aspect_to_significators(chart, querent_planet, quesited_planet, ignore_void_moon)
         if moon_next_aspect_result["decisive"]:
-            return {
-                "result": moon_next_aspect_result["result"],
-                "confidence": moon_next_aspect_result["confidence"],
-                "reasoning": reasoning + [f"Moon's next aspect decisive: {moon_next_aspect_result['reason']}"],
-                "timing": moon_next_aspect_result["timing"],
-                "traditional_factors": {
-                    "perfection_type": "moon_next_aspect",
-                    "reception": moon_next_aspect_result.get("reception", "none"),
-                    "querent_strength": chart.planets[querent_planet].dignity_score,
-                    "quesited_strength": chart.planets[quesited_planet].dignity_score,
-                    "moon_void": moon_next_aspect_result.get("void_moon", False)
-                },
-                "solar_factors": solar_factors
-            }
+            if moon_next_aspect_result["result"] == "NO":
+                return {
+                    "result": "NO",
+                    "confidence": moon_next_aspect_result["confidence"],
+                    "reasoning": reasoning + [f"Moon's next aspect denies perfection: {moon_next_aspect_result['reason']}"],
+                    "timing": moon_next_aspect_result["timing"],
+                    "traditional_factors": {
+                        "perfection_type": "moon_next_aspect",
+                        "reception": moon_next_aspect_result.get("reception", "none"),
+                        "querent_strength": chart.planets[querent_planet].dignity_score,
+                        "quesited_strength": chart.planets[quesited_planet].dignity_score,
+                        "moon_void": moon_next_aspect_result.get("void_moon", False)
+                    },
+                    "solar_factors": solar_factors
+                }
+            else:
+                reasoning.append(
+                    f"Moon's next aspect supports but cannot perfect: {moon_next_aspect_result['reason']}"
+                )
         
         # 3.7. Enhanced Moon testimony analysis when no decisive Moon aspect
         moon_testimony = self._check_enhanced_moon_testimony(chart, querent_planet, quesited_planet, ignore_void_moon)
