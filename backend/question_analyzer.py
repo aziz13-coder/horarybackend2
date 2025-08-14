@@ -69,6 +69,7 @@ class TraditionalHoraryQuestionAnalyzer:
         """Parse timeframe constraints from question text"""
         import re
         from datetime import datetime, timedelta
+        import calendar
         
         timeframe_patterns = {
             "this_month": [r"this month", r"by the end of this month", r"within this month"],
@@ -77,7 +78,10 @@ class TraditionalHoraryQuestionAnalyzer:
             "this_week": [r"this week", r"by the end of this week", r"within this week"],
             "today": [r"today", r"by today", r"by the end of today"],
             "soon": [r"soon", r"quickly", r"fast"],
-            "by_date": [r"by (\w+ \d+)", r"before (\w+ \d+)"]
+            "by_date": [r"by (\w+ \d+)", r"before (\w+ \d+)"],
+            "specific_month": [
+                r"in (january|february|march|april|may|june|july|august|september|october|november|december)"
+            ],
         }
         
         detected_timeframes = []
@@ -107,7 +111,31 @@ class TraditionalHoraryQuestionAnalyzer:
             end_date = now + timedelta(days=days_until_sunday)
         elif "today" in detected_timeframes:
             end_date = now.replace(hour=23, minute=59, second=59)
-        
+        elif "specific_month" in detected_timeframes:
+            # End of referenced month in current year
+            match = re.search(
+                timeframe_patterns["specific_month"][0], question, re.IGNORECASE
+            )
+            if match:
+                month_str = match.group(1).lower()
+                month_numbers = {
+                    "january": 1,
+                    "february": 2,
+                    "march": 3,
+                    "april": 4,
+                    "may": 5,
+                    "june": 6,
+                    "july": 7,
+                    "august": 8,
+                    "september": 9,
+                    "october": 10,
+                    "november": 11,
+                    "december": 12,
+                }
+                month_num = month_numbers[month_str]
+                last_day = calendar.monthrange(now.year, month_num)[1]
+                end_date = datetime(now.year, month_num, last_day)
+
         return {
             "has_timeframe": True,
             "type": detected_timeframes[0],  # Use first match
